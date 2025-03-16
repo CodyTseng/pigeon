@@ -13,6 +13,7 @@ use axum::{
     response::Response,
     routing::{any, get},
 };
+use config::CONFIG;
 use dotenv::dotenv;
 use pool::Pool;
 use tokio::net::TcpListener;
@@ -39,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/{node_id}", any(handle_client_connection))
         .layer(Extension(pool));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], CONFIG.port));
     let listener = TcpListener::bind(addr).await?;
 
     info!("Listening on {}", addr);
