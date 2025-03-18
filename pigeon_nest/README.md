@@ -1,4 +1,4 @@
-# nostr-relay-proxy
+# Pigeon Nest
 
 A simple Nostr relay proxy service
 
