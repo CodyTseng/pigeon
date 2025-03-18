@@ -1,19 +1,30 @@
 # Pigeon
 
-Pigeon is a simple command-line tool that helps you connect to a pigeon nest service to expose your local Nostr relay to the internet.
+Pigeon is a simple program that helps you connect to a pigeon nest service to expose your local Nostr relay to the internet.
+
+## Prerequisites
+
+You need to have Rust installed on your machine. If you don't have it yet, you can install it via [rustup](https://rustup.rs/).
 
 ## Build
 
 ```bash
+# Clone the repository
 git clone https://github.com/CodyTseng/pigeon.git
-cd pigeon/pigeon
-cargo build --release
+
+# Change the working directory
+cd pigeon
+
+# Build the project
+cargo build -p pigeon --release
 ```
+
+The binary will be available at `./target/release/pigeon`.
 
 ## Usage
 
 ```bash
-pigeon -t ws://localhost:4869
+pigeon -t ws://localhost:4869 # Your local relay URL
 ```
 
 ### Command Line Arguments
