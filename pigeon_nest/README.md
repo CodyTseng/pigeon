@@ -21,15 +21,15 @@ A simple Nostr relay proxy service
    cargo build --release
    ```
 2. Copy the executable from `target/release/` to your production environment.
-3. Create a systemd service unit file (e.g., `/etc/systemd/system/nostr-relay-proxy.service`):
+3. Create a systemd service unit file (e.g., `/etc/systemd/system/pigeon-nest.service`):
 
    ```ini
    [Unit]
-   Description=Nostr Relay Proxy Service
+   Description=Pigeon Nest Service
    After=network.target
 
    [Service]
-   ExecStart=/path/to/nostr-relay-proxy
+   ExecStart=/path/to/pigeon-nest
    Restart=always
    RestartSec=5
    User=YOUR_USER_NAME
@@ -44,12 +44,12 @@ A simple Nostr relay proxy service
 
 4. Enable and start the service:
    ```bash
-   sudo systemctl enable nostr-relay-proxy
-   sudo systemctl start nostr-relay-proxy
+   sudo systemctl enable pigeon-nest
+   sudo systemctl start pigeon-nest
    ```
 5. Verify the service status:
    ```bash
-   sudo systemctl status nostr-relay-proxy
+   sudo systemctl status pigeon-nest
    ```
 
 ## License
