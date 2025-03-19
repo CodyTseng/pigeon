@@ -277,7 +277,7 @@ impl Node {
                             };
 
                             let mut new_arr = Vec::new();
-                            new_arr.push(json!("REQ"));
+                            new_arr.push(json!(arr[0].clone()));
                             // Add client ID to the subscription ID
                             new_arr.push(json!(format!("{}:{}", client_id, sub_id)));
 
