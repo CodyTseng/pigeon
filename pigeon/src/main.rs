@@ -115,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
             {
                 error!("Error sending ping to proxy: {}", e);
             }
-            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(180)).await;
         }
     });
 

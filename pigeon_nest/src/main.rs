@@ -3,6 +3,7 @@ mod config;
 mod node;
 mod nostr_event;
 mod pool;
+mod relay;
 mod utils;
 
 use std::{env, net::SocketAddr, sync::Arc};

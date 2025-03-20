@@ -17,21 +17,21 @@ pub struct Client {
     is_active: Arc<AtomicBool>,
     last_active: Arc<AtomicU64>,
     sender: Sender<SenderCommand>,
-    proxy_sender: Sender<(String, Message)>,
+    node_sender: Sender<(String, Message)>,
 }
 
 impl Client {
-    pub fn new(id: String, ws: WebSocket, proxy_sender: Sender<(String, Message)>) -> Self {
+    pub fn new(id: String, ws: WebSocket, node_sender: Sender<(String, Message)>) -> Self {
         let (sender, receiver) = ws.split();
-        let (sender_tx, sender_rx) = mpsc::channel(32);
+        let (tx, rx) = mpsc::channel(32);
 
         let client = Self {
             is_active: Arc::new(AtomicBool::new(true)),
             last_active: Arc::new(AtomicU64::new(unix_timestamp())),
-            sender: sender_tx,
-            proxy_sender,
+            sender: tx,
+            node_sender,
         };
-        client.handle_send_to_client_messages(sender, sender_rx);
+        client.handle_send_to_client_messages(sender, rx);
         client.handle_client_messages(id.clone(), receiver);
         client
     }
@@ -67,12 +67,12 @@ impl Client {
     fn handle_send_to_client_messages(
         &self,
         mut sender: SplitSink<WebSocket, Message>,
-        mut cmd_rx: mpsc::Receiver<SenderCommand>,
+        mut rx: mpsc::Receiver<SenderCommand>,
     ) {
         let is_active = Arc::clone(&self.is_active);
 
         tokio::spawn(async move {
-            while let Some(cmd) = cmd_rx.recv().await {
+            while let Some(cmd) = rx.recv().await {
                 match cmd {
                     SenderCommand::Send(msg) => {
                         if sender.send(msg).await.is_err() {
@@ -94,14 +94,14 @@ impl Client {
     fn handle_client_messages(&self, id: String, mut receiver: SplitStream<WebSocket>) {
         let last_active = Arc::clone(&self.last_active);
         let sender = self.sender.clone();
-        let proxy_sender = self.proxy_sender.clone();
+        let node_sender = self.node_sender.clone();
 
         tokio::spawn(async move {
             while let Some(msg) = receiver.next().await {
                 last_active.store(unix_timestamp(), Ordering::Relaxed);
                 match msg {
                     Ok(Message::Text(text)) => {
-                        let _ = proxy_sender.send((id.clone(), Message::Text(text))).await;
+                        let _ = node_sender.send((id.clone(), Message::Text(text))).await;
                     }
                     Ok(Message::Ping(_)) => {
                         let _ = sender
