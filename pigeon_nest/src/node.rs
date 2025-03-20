@@ -318,13 +318,13 @@ impl Node {
 
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
 
                 let to_remove = clients
                     .iter()
                     .filter_map(|entry| {
                         let client = entry.value();
-                        if !client.is_active() || client.seconds_since_last_active() > 60 {
+                        if !client.is_active() || client.seconds_since_last_active() > 180 {
                             return Some(entry.key().clone());
                         }
                         None

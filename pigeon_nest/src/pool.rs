@@ -47,13 +47,13 @@ impl Pool {
 
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
 
                 let to_remove = nodes
                     .iter()
                     .filter_map(|entry| {
                         let node = entry.value();
-                        if !node.is_active() || node.seconds_since_last_active() > 60 {
+                        if !node.is_active() || node.seconds_since_last_active() > 600 {
                             return Some(entry.key().clone());
                         }
                         None
