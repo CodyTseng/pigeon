@@ -25,3 +25,9 @@ secp256k1 = { version = "0.30.0", features = ["hashes"] }
 dashmap = "6.1.0"
 url = "2.5.4"
 dotenv = "0.15.0"
+
+[dev-dependencies]
+nostr = "0.40.0"
+reqwest = { version = "0.12.15", features = ["json"] }
+tokio-tungstenite = "0.26.2"
+tungstenite = "0.26.2"
