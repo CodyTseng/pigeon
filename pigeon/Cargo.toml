@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.28", features = ["full"] }
-tokio-tungstenite = { version = "0.19", features = ["native-tls"] }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.26.2", features = ["native-tls"] }
 futures-util = "0.3"
 clap = { version = "4.3", features = ["derive"] }
 url = "2.3"

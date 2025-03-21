@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Connecting to proxy: {}", proxy_url.to_string());
 
     // Connect to both services
-    let (proxy_ws, _) = connect_async(proxy_url).await.unwrap();
+    let (proxy_ws, _) = connect_async(proxy_url.to_string()).await.unwrap();
     let (proxy_write, mut proxy_read) = proxy_ws.split();
     let shared_proxy_writer = Arc::new(Mutex::new(proxy_write));
     let mut public_relay_url = "".to_string();
@@ -89,7 +89,7 @@ async fn main() -> anyhow::Result<()> {
                     shared_proxy_writer
                         .lock()
                         .await
-                        .send(Message::Text(json.to_string()))
+                        .send(Message::Text(json.to_string().into()))
                         .await
                         .unwrap();
                 } else if arr[0] == "OK" {
@@ -110,7 +110,7 @@ async fn main() -> anyhow::Result<()> {
             if let Err(e) = ping_writer
                 .lock()
                 .await
-                .send(Message::Ping(Vec::new()))
+                .send(Message::Ping(Vec::new().into()))
                 .await
             {
                 error!("Error sending ping to proxy: {}", e);
@@ -127,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .unwrap();
     info!("Connecting to relay: {}", &relay_url);
-    let (relay_ws, _) = connect_async(&relay_url).await.unwrap();
+    let (relay_ws, _) = connect_async(&relay_url.to_string()).await.unwrap();
     info!("Connected to relay");
     let (mut relay_write, mut relay_read) = relay_ws.split();
 
