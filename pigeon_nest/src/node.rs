@@ -80,60 +80,60 @@ impl Node {
         let in_progress_events = Arc::clone(&self.in_progress_events);
 
         tokio::spawn(async move {
-            while let Some(msg) = receiver.recv().await {
-                match msg {
-                    Message::Text(text) => {
-                        let parsed: serde_json::Value = match serde_json::from_str(&text) {
-                            Ok(parsed) => parsed,
-                            Err(_) => continue,
-                        };
-                        if parsed.is_array() {
-                            let arr = match parsed.as_array() {
-                                Some(arr) => arr,
-                                None => continue,
-                            };
-                            if arr[0] == "EVENT" || arr[0] == "EOSE" || arr[0] == "CLOSED" {
-                                let sub_id = match arr[1].as_str() {
-                                    Some(sub_id) => sub_id,
-                                    None => continue,
-                                };
-                                let (client_id, raw_sub_id) = match sub_id.split_once(':') {
-                                    Some(arr) => arr,
-                                    None => continue,
-                                };
+            while let Some(Message::Text(text)) = receiver.recv().await {
+                let parsed: serde_json::Value = match serde_json::from_str(&text) {
+                    Ok(parsed) => parsed,
+                    Err(_) => continue,
+                };
+                if !parsed.is_array() {
+                    continue;
+                }
 
-                                if let Some(client) = clients.get(client_id) {
-                                    let mut new_arr = Vec::new();
-                                    new_arr.push(arr[0].clone());
-                                    // Restore the original subscription ID
-                                    new_arr.push(json!(raw_sub_id));
+                let arr = match parsed.as_array() {
+                    Some(arr) => arr,
+                    None => continue,
+                };
+                if arr.len() < 2 {
+                    continue;
+                }
 
-                                    // Add all remaining elements from the original array
-                                    for i in 2..arr.len() {
-                                        new_arr.push(arr[i].clone());
-                                    }
+                let msg_type = &arr[0];
+                if msg_type == "EVENT" || msg_type == "EOSE" || msg_type == "CLOSED" {
+                    let sub_id = match arr[1].as_str() {
+                        Some(sub_id) => sub_id,
+                        None => continue,
+                    };
+                    let (client_id, raw_sub_id) = match sub_id.split_once(':') {
+                        Some(arr) => arr,
+                        None => continue,
+                    };
 
-                                    client
-                                        .send(Message::Text(json!(new_arr).to_string().into()))
-                                        .await;
-                                }
-                            } else if arr[0] == "OK" {
-                                let event_id = match arr[1].as_str() {
-                                    Some(event_id) => event_id,
-                                    None => continue,
-                                };
+                    if let Some(client) = clients.get(client_id) {
+                        let mut new_arr = Vec::new();
+                        new_arr.push(msg_type.clone());
+                        // Restore the original subscription ID
+                        new_arr.push(json!(raw_sub_id));
 
-                                if let Some((_, client_ids)) = in_progress_events.remove(event_id) {
-                                    for client_id in client_ids {
-                                        if let Some(client) = clients.get(&client_id) {
-                                            client.send(Message::Text(text.clone())).await;
-                                        }
-                                    }
-                                }
+                        // Add all remaining elements from the original array
+                        new_arr.extend(arr.iter().skip(2).cloned());
+
+                        client
+                            .send(Message::Text(json!(new_arr).to_string().into()))
+                            .await;
+                    }
+                } else if msg_type == "OK" {
+                    let event_id = match arr[1].as_str() {
+                        Some(event_id) => event_id,
+                        None => continue,
+                    };
+
+                    if let Some((_, client_ids)) = in_progress_events.remove(event_id) {
+                        for client_id in client_ids {
+                            if let Some(client) = clients.get(&client_id) {
+                                client.send(Message::Text(text.clone())).await;
                             }
                         }
                     }
-                    _ => {}
                 }
             }
         });
@@ -144,54 +144,52 @@ impl Node {
         let relay = Arc::clone(&self.relay);
 
         tokio::spawn(async move {
-            while let Some(msg) = receiver.recv().await {
-                match msg {
-                    (client_id, Message::Text(text)) => {
-                        let parsed: serde_json::Value = match serde_json::from_str(&text) {
-                            Ok(parsed) => parsed,
-                            Err(_) => continue,
-                        };
-                        if !parsed.is_array() {
-                            continue;
-                        }
+            while let Some((client_id, Message::Text(text))) = receiver.recv().await {
+                let parsed: serde_json::Value = match serde_json::from_str(&text) {
+                    Ok(parsed) => parsed,
+                    Err(_) => continue,
+                };
+                if !parsed.is_array() {
+                    continue;
+                }
 
-                        let arr = match parsed.as_array() {
-                            Some(arr) => arr,
-                            None => continue,
-                        };
-                        if arr[0] == "REQ" || arr[0] == "CLOSE" {
-                            let sub_id = match arr[1].as_str() {
-                                Some(sub_id) => sub_id,
-                                None => continue,
-                            };
+                let arr = match parsed.as_array() {
+                    Some(arr) => arr,
+                    None => continue,
+                };
+                if arr.len() < 2 {
+                    continue;
+                }
 
-                            let mut new_arr = Vec::new();
-                            new_arr.push(json!(arr[0].clone()));
-                            // Add client ID to the subscription ID
-                            new_arr.push(json!(format!("{}:{}", client_id, sub_id)));
+                let msg_type = &arr[0];
+                if msg_type == "REQ" || msg_type == "CLOSE" {
+                    let sub_id = match arr[1].as_str() {
+                        Some(sub_id) => sub_id,
+                        None => continue,
+                    };
 
-                            // Add all remaining elements from the original array
-                            for i in 2..arr.len() {
-                                new_arr.push(arr[i].clone());
-                            }
+                    let mut new_arr = Vec::new();
+                    new_arr.push(json!(msg_type.clone()));
+                    // Add client ID to the subscription ID
+                    new_arr.push(json!(format!("{}:{}", client_id, sub_id)));
 
-                            let _ = relay
-                                .send(Message::Text(json!(new_arr).to_string().into()))
-                                .await;
-                        } else if arr[0] == "EVENT" {
-                            let event = match NostrEvent::from_value(&arr[1]) {
-                                Ok(event) => event,
-                                Err(_) => continue,
-                            };
-                            in_progress_events
-                                .entry(event.id().to_string())
-                                .or_insert_with(Vec::new)
-                                .push(client_id);
+                    // Add all remaining elements from the original array
+                    new_arr.extend(arr.iter().skip(2).cloned());
 
-                            let _ = relay.send(Message::Text(text)).await;
-                        }
-                    }
-                    _ => {}
+                    let _ = relay
+                        .send(Message::Text(json!(new_arr).to_string().into()))
+                        .await;
+                } else if msg_type == "EVENT" {
+                    let event = match NostrEvent::from_value(&arr[1]) {
+                        Ok(event) => event,
+                        Err(_) => continue,
+                    };
+                    in_progress_events
+                        .entry(event.id().to_string())
+                        .or_insert_with(Vec::new)
+                        .push(client_id);
+
+                    let _ = relay.send(Message::Text(text)).await;
                 }
             }
         });

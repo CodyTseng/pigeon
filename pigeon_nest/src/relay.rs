@@ -45,10 +45,9 @@ impl Relay {
 
         let event = match auth_message {
             Ok(Message::Text(auth_message)) => {
-                if let Some(event) = check_auth_message(&auth_message, &challenge) {
-                    event
-                } else {
-                    return None;
+                match check_auth_message(&auth_message, &challenge) {
+                    Some(event) => event,
+                    None => return None,
                 }
             }
             _ => return None,
@@ -122,19 +121,15 @@ impl Relay {
 
         tokio::spawn(async move {
             while let Some(cmd) = rx.recv().await {
-                match cmd {
-                    SenderCommand::Send(msg) => {
-                        if sender.send(msg).await.is_err() {
-                            let _ = sender.close().await;
-                            is_active.store(false, Ordering::Relaxed);
-                            break;
-                        }
-                    }
-                    SenderCommand::Close => {
-                        let _ = sender.close().await;
-                        is_active.store(false, Ordering::Relaxed);
-                        break;
-                    }
+                let should_close = match cmd {
+                    SenderCommand::Send(msg) => sender.send(msg).await.is_err(),
+                    SenderCommand::Close => true,
+                };
+
+                if should_close {
+                    let _ = sender.close().await;
+                    is_active.store(false, Ordering::Relaxed);
+                    break;
                 }
             }
         });
@@ -177,10 +172,16 @@ fn check_auth_message(message: &str, challenge: &str) -> Option<NostrEvent> {
         Ok(parsed) => parsed,
         Err(_) => return None,
     };
+    if !parsed.is_array() {
+        return None;
+    }
     let arr = match parsed.as_array() {
         Some(arr) => arr,
         None => return None,
     };
+    if arr.len() < 2 {
+        return None;
+    }
 
     if (arr.len() != 2) || (arr[0] != "AUTH") {
         return None;
@@ -208,12 +209,21 @@ fn check_auth_message(message: &str, challenge: &str) -> Option<NostrEvent> {
     let mut match_relay = false;
 
     for tag in event.tags() {
-        if tag.len() >= 2 && tag[0] == "challenge" && tag[1] == challenge {
+        if tag.len() < 2 {
+            continue;
+        }
+
+        let (tag_name, tag_value) = match (tag.get(0), tag.get(1)) {
+            (Some(name), Some(value)) => (name, value),
+            _ => continue,
+        };
+
+        if tag.len() >= 2 && tag_name == "challenge" && tag_value == challenge {
             match_challenge = true;
         }
 
-        if tag.len() >= 2 && tag[0] == "relay" && !match_relay {
-            if let Some(domain) = extract_endpoint_from_url(&tag[1]) {
+        if tag.len() >= 2 && tag_name == "relay" && !match_relay {
+            if let Some(domain) = extract_endpoint_from_url(tag_value) {
                 match_relay = domain == CONFIG.endpoint;
             }
         }

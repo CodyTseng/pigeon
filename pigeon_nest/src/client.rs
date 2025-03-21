@@ -73,19 +73,15 @@ impl Client {
 
         tokio::spawn(async move {
             while let Some(cmd) = rx.recv().await {
-                match cmd {
-                    SenderCommand::Send(msg) => {
-                        if sender.send(msg).await.is_err() {
-                            let _ = sender.close().await;
-                            is_active.store(false, Ordering::Relaxed);
-                            break;
-                        }
-                    }
-                    SenderCommand::Close => {
-                        let _ = sender.close().await;
-                        is_active.store(false, Ordering::Relaxed);
-                        break;
-                    }
+                let should_close = match cmd {
+                    SenderCommand::Send(msg) => sender.send(msg).await.is_err(),
+                    SenderCommand::Close => true,
+                };
+
+                if should_close {
+                    let _ = sender.close().await;
+                    is_active.store(false, Ordering::Relaxed);
+                    break;
                 }
             }
         });
