@@ -147,11 +147,6 @@ impl Relay {
                     Ok(Message::Text(text)) => {
                         let _ = node_sender.send(Message::Text(text)).await;
                     }
-                    Ok(Message::Ping(_)) => {
-                        let _ = sender
-                            .send(SenderCommand::Send(Message::Pong(Vec::new().into())))
-                            .await;
-                    }
                     Ok(Message::Close(_)) => {
                         let _ = sender.send(SenderCommand::Close).await;
                         break;
