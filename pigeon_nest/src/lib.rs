@@ -41,13 +41,18 @@ pub fn create_routes() -> impl Filter<Extract = impl warp::Reply, Error = warp::
     let relay_info_route =
         warp::path!(String)
             .and(pool_filter.clone())
-            .map(|node_id: String, pool: Arc<Pool>| {
-                let node = match pool.get_node(&node_id) {
-                    Some(node) => node,
-                    None => return "Relay not found".to_string(),
-                };
-                node.get_relay_info().to_string()
-            });
+            .map(
+                |node_id: String, pool: Arc<Pool>| match pool.get_node(&node_id) {
+                    Some(node) => warp::reply::with_status(
+                        node.get_relay_info().to_string(),
+                        warp::http::StatusCode::OK,
+                    ),
+                    None => warp::reply::with_status(
+                        "Relay not found".to_string(),
+                        warp::http::StatusCode::NOT_FOUND,
+                    ),
+                },
+            );
 
     let register_route = warp::path("register")
         .and(warp::ws())
@@ -59,8 +64,8 @@ pub fn create_routes() -> impl Filter<Extract = impl warp::Reply, Error = warp::
         });
 
     index_route
+        .or(register_route)
         .or(connect_route)
         .or(relay_info_route)
-        .or(register_route)
         .with(warp::cors().allow_any_origin())
 }
