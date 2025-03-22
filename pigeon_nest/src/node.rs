@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use axum::extract::ws::{Message, WebSocket};
 use dashmap::DashMap;
 use serde_json::json;
 use tokio::sync::{mpsc, mpsc::Receiver, mpsc::Sender};
 use tracing::info;
+use warp::filters::ws::{Message, WebSocket};
 
 use crate::client::Client;
 use crate::nostr_event::NostrEvent;
@@ -52,6 +52,10 @@ impl Node {
         self.relay.seconds_since_last_active()
     }
 
+    pub fn get_relay_info(&self) -> &str {
+        self.relay.relay_info()
+    }
+
     pub async fn close(&self) {
         let _ = self.relay.close().await;
     }
@@ -80,8 +84,17 @@ impl Node {
         let in_progress_events = Arc::clone(&self.in_progress_events);
 
         tokio::spawn(async move {
-            while let Some(Message::Text(text)) = receiver.recv().await {
-                let parsed: serde_json::Value = match serde_json::from_str(&text) {
+            while let Some(msg_result) = receiver.recv().await {
+                if !msg_result.is_text() {
+                    continue;
+                };
+
+                let msg = match msg_result.to_str() {
+                    Ok(msg) => msg,
+                    Err(_) => continue,
+                };
+
+                let parsed: serde_json::Value = match serde_json::from_str(msg) {
                     Ok(parsed) => parsed,
                     Err(_) => continue,
                 };
@@ -117,9 +130,7 @@ impl Node {
                         // Add all remaining elements from the original array
                         new_arr.extend(arr.iter().skip(2).cloned());
 
-                        client
-                            .send(Message::Text(json!(new_arr).to_string().into()))
-                            .await;
+                        client.send(Message::text(json!(new_arr).to_string())).await;
                     }
                 } else if msg_type == "OK" {
                     let event_id = match arr[1].as_str() {
@@ -130,7 +141,7 @@ impl Node {
                     if let Some((_, client_ids)) = in_progress_events.remove(event_id) {
                         for client_id in client_ids {
                             if let Some(client) = clients.get(&client_id) {
-                                client.send(Message::Text(text.clone())).await;
+                                client.send(Message::text(msg)).await;
                             }
                         }
                     }
@@ -144,8 +155,12 @@ impl Node {
         let relay = Arc::clone(&self.relay);
 
         tokio::spawn(async move {
-            while let Some((client_id, Message::Text(text))) = receiver.recv().await {
-                let parsed: serde_json::Value = match serde_json::from_str(&text) {
+            while let Some((client_id, msg_result)) = receiver.recv().await {
+                let msg = match msg_result.to_str() {
+                    Ok(msg) => msg,
+                    Err(_) => continue,
+                };
+                let parsed: serde_json::Value = match serde_json::from_str(msg) {
                     Ok(parsed) => parsed,
                     Err(_) => continue,
                 };
@@ -176,9 +191,7 @@ impl Node {
                     // Add all remaining elements from the original array
                     new_arr.extend(arr.iter().skip(2).cloned());
 
-                    let _ = relay
-                        .send(Message::Text(json!(new_arr).to_string().into()))
-                        .await;
+                    let _ = relay.send(Message::text(json!(new_arr).to_string())).await;
                 } else if msg_type == "EVENT" {
                     let event = match NostrEvent::from_value(&arr[1]) {
                         Ok(event) => event,
@@ -189,7 +202,7 @@ impl Node {
                         .or_insert_with(Vec::new)
                         .push(client_id);
 
-                    let _ = relay.send(Message::Text(text)).await;
+                    let _ = relay.send(Message::text(msg)).await;
                 }
             }
         });

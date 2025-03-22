@@ -2,13 +2,12 @@ use std::{env, net::SocketAddr};
 
 use dotenv::dotenv;
 use pigeon_nest::CONFIG;
-use pigeon_nest::create_app;
-use tokio::net::TcpListener;
+use pigeon_nest::create_routes;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
     dotenv().ok();
     tracing_subscriber::registry()
         .with(
@@ -19,12 +18,9 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let app = create_app();
+    let routes = create_routes();
     let addr = SocketAddr::from(([0, 0, 0, 0], CONFIG.port));
-    let listener = TcpListener::bind(addr).await?;
 
     info!("Listening on {}", addr);
-    axum::serve(listener, app.into_make_service()).await?;
-
-    Ok(())
+    warp::serve(routes).run(addr).await;
 }

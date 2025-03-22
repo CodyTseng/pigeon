@@ -64,6 +64,10 @@ impl NostrEvent {
         self.created_at
     }
 
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+
     pub fn from_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         let event: Self = serde_json::from_value(value.clone())?;
         event.validate()?;

@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use axum::extract::ws::{Message, WebSocket};
 use futures::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
 use tokio::sync::{mpsc, mpsc::Sender};
+use warp::filters::ws::{Message, WebSocket};
 
 use crate::utils::unix_timestamp;
 
@@ -93,21 +93,18 @@ impl Client {
         let node_sender = self.node_sender.clone();
 
         tokio::spawn(async move {
-            while let Some(msg) = receiver.next().await {
+            while let Some(msg_result) = receiver.next().await {
                 last_active.store(unix_timestamp(), Ordering::Relaxed);
-                match msg {
-                    Ok(Message::Text(text)) => {
-                        let _ = node_sender.send((id.clone(), Message::Text(text))).await;
-                    }
-                    Ok(Message::Close(_)) => {
+                if let Ok(msg) = msg_result {
+                    if msg.is_text() {
+                        let _ = node_sender.send((id.clone(), msg)).await;
+                    } else if msg.is_close() {
                         let _ = sender.send(SenderCommand::Close).await;
                         break;
                     }
-                    Err(_) => {
-                        let _ = sender.send(SenderCommand::Close).await;
-                        break;
-                    }
-                    _ => {}
+                } else {
+                    let _ = sender.send(SenderCommand::Close).await;
+                    break;
                 }
             }
         });

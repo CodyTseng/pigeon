@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use axum::extract::ws::{Message, WebSocket};
 use futures::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
 use serde_json::json;
 use tokio::sync::{mpsc, mpsc::Sender};
 use tokio::time::timeout;
+use warp::filters::ws::{Message, WebSocket};
 
 use crate::config::CONFIG;
 use crate::nostr_event::NostrEvent;
@@ -23,6 +23,7 @@ pub struct Relay {
     last_active: Arc<AtomicU64>,
     sender: Sender<SenderCommand>,
     node_sender: Sender<Message>,
+    relay_info: String,
 }
 
 impl Relay {
@@ -32,37 +33,36 @@ impl Relay {
         let challenge = format!("{:x}", rand::random::<u128>());
         let auth_request = json!(["AUTH", challenge]);
         if sender
-            .send(Message::Text(auth_request.to_string().into()))
+            .send(Message::text(auth_request.to_string()))
             .await
             .is_err()
         {
             return None;
         }
         let auth_message = match timeout(std::time::Duration::from_secs(5), receiver.next()).await {
-            Ok(Some(msg)) => msg,
+            Ok(Some(Ok(msg))) => msg,
             _ => return None,
         };
 
-        let event = match auth_message {
-            Ok(Message::Text(auth_message)) => {
-                match check_auth_message(&auth_message, &challenge) {
-                    Some(event) => event,
-                    None => return None,
-                }
-            }
-            _ => return None,
+        let event = if auth_message.is_text() {
+            let message = match auth_message.to_str() {
+                Ok(message) => message,
+                Err(_) => return None,
+            };
+            check_auth_message(message, &challenge)?
+        } else {
+            return None;
         };
 
         sender
-            .send(Message::Text(
+            .send(Message::text(
                 json!([
                     "OK",
                     event.id().to_string(),
                     true,
                     format!("{}/{}", CONFIG.endpoint, event.pubkey())
                 ])
-                .to_string()
-                .into(),
+                .to_string(),
             ))
             .await
             .ok();
@@ -74,6 +74,7 @@ impl Relay {
             last_active: Arc::new(AtomicU64::new(unix_timestamp())),
             sender: tx,
             node_sender,
+            relay_info: event.content().to_string(),
         };
         relay.handle_send_to_relay_message(sender, rx);
         relay.handle_relay_messages(receiver);
@@ -96,6 +97,10 @@ impl Relay {
         } else {
             0
         }
+    }
+
+    pub fn relay_info(&self) -> &str {
+        &self.relay_info
     }
 
     pub async fn close(&self) {
@@ -141,21 +146,18 @@ impl Relay {
         let node_sender = self.node_sender.clone();
 
         tokio::spawn(async move {
-            while let Some(msg) = receiver.next().await {
+            while let Some(msg_result) = receiver.next().await {
                 last_active.store(unix_timestamp(), Ordering::Relaxed);
-                match msg {
-                    Ok(Message::Text(text)) => {
-                        let _ = node_sender.send(Message::Text(text)).await;
-                    }
-                    Ok(Message::Close(_)) => {
+                if let Ok(msg) = msg_result {
+                    if msg.is_text() {
+                        let _ = node_sender.send(msg).await;
+                    } else if msg.is_close() {
                         let _ = sender.send(SenderCommand::Close).await;
                         break;
                     }
-                    Err(_) => {
-                        let _ = sender.send(SenderCommand::Close).await;
-                        break;
-                    }
-                    _ => {}
+                } else {
+                    let _ = sender.send(SenderCommand::Close).await;
+                    break;
                 }
             }
         });

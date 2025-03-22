@@ -1,29 +1,21 @@
 mod tests {
     use futures_util::{SinkExt, StreamExt};
     use nostr::prelude::*;
-    use pigeon_nest::create_app;
+    use pigeon_nest::create_routes;
     use serde_json::json;
     use std::{borrow::Cow, net::SocketAddr};
-    use tokio::{
-        net::TcpListener,
-        time::{Duration, sleep},
-    };
+    use tokio::time::{Duration, sleep};
     use tokio_tungstenite::connect_async;
     use tungstenite::Message;
 
     #[tokio::test]
     async fn test_relay_client_interaction() {
-        let app = create_app();
+        let routes = create_routes();
         let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-        let listener = TcpListener::bind(addr)
-            .await
-            .expect("Failed to bind to address");
 
         // Start the server in a background task
         tokio::spawn(async move {
-            axum::serve(listener, app.into_make_service())
-                .await
-                .expect("Server error");
+            warp::serve(routes).run(addr).await;
         });
 
         // Wait briefly for the server to start

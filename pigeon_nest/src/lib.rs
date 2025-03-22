@@ -8,51 +8,58 @@ mod utils;
 
 use std::sync::Arc;
 
-use axum::{
-    Extension, Router,
-    extract::{Path, ws::WebSocketUpgrade},
-    response::Response,
-    routing::{any, get},
-};
 pub use config::CONFIG;
 use pool::Pool;
+use warp::Filter;
 
-pub fn create_app() -> Router {
+pub fn create_routes() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     let pool = Arc::new(Pool::new());
+    let pool_filter = warp::any().map(move || Arc::clone(&pool));
 
-    Router::new()
-        .route("/", get(index_handler))
-        .route("/register", any(relay_registration_handler))
-        .route("/{node_id}", any(client_connection_handler))
-        .layer(Extension(pool))
-}
+    let index_route = warp::path::end()
+        .and(pool_filter.clone())
+        .map(|pool: Arc<Pool>| {
+            let size = pool.get_pool_size();
+            format!("Proxying for {} relays", size)
+        });
 
-async fn index_handler(state: Extension<Arc<Pool>>) -> String {
-    let pool = state.0.clone();
-    let size = pool.get_pool_size();
-    format!("Proxying for {} relays", size)
-}
+    let register_route = warp::path("register")
+        .and(warp::ws())
+        .and(pool_filter.clone())
+        .map(|ws: warp::ws::Ws, pool: Arc<Pool>| {
+            ws.on_upgrade(move |socket| async move {
+                pool.register(socket).await;
+            })
+        });
 
-async fn relay_registration_handler(state: Extension<Arc<Pool>>, ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(async move |socket| {
-        let pool = state.0.clone();
-        pool.register(socket).await;
-    })
-}
+    let connect_route = warp::path!(String)
+        .and(warp::ws())
+        .and(pool_filter.clone())
+        .map(|node_id: String, ws: warp::ws::Ws, pool: Arc<Pool>| {
+            ws.on_upgrade(move |socket| async move {
+                let node = match pool.get_node(&node_id) {
+                    Some(node) => node,
+                    None => return,
+                };
+                if node.is_active() {
+                    node.add_client(socket);
+                }
+            })
+        });
 
-async fn client_connection_handler(
-    state: Extension<Arc<Pool>>,
-    Path(node_id): Path<String>,
-    ws: WebSocketUpgrade,
-) -> Response {
-    ws.on_upgrade(async move |socket| {
-        let pool = state.0.clone();
-        let node = match pool.get_node(&node_id) {
-            Some(node) => node,
-            None => return,
-        };
-        if node.is_active() {
-            node.add_client(socket);
-        }
-    })
+    let relay_info_route =
+        warp::path!(String)
+            .and(pool_filter.clone())
+            .map(|node_id: String, pool: Arc<Pool>| {
+                let node = match pool.get_node(&node_id) {
+                    Some(node) => node,
+                    None => return "Relay not found".to_string(),
+                };
+                node.get_relay_info().to_string()
+            });
+
+    index_route
+        .or(register_route)
+        .or(connect_route)
+        .or(relay_info_route)
 }
