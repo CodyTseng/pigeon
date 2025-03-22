@@ -23,15 +23,6 @@ pub fn create_routes() -> impl Filter<Extract = impl warp::Reply, Error = warp::
             format!("Proxying for {} relays", size)
         });
 
-    let register_route = warp::path("register")
-        .and(warp::ws())
-        .and(pool_filter.clone())
-        .map(|ws: warp::ws::Ws, pool: Arc<Pool>| {
-            ws.on_upgrade(move |socket| async move {
-                pool.register(socket).await;
-            })
-        });
-
     let connect_route = warp::path!(String)
         .and(warp::ws())
         .and(pool_filter.clone())
@@ -58,8 +49,18 @@ pub fn create_routes() -> impl Filter<Extract = impl warp::Reply, Error = warp::
                 node.get_relay_info().to_string()
             });
 
+    let register_route = warp::path("register")
+        .and(warp::ws())
+        .and(pool_filter.clone())
+        .map(|ws: warp::ws::Ws, pool: Arc<Pool>| {
+            ws.on_upgrade(move |socket| async move {
+                pool.register(socket).await;
+            })
+        });
+
     index_route
-        .or(register_route)
         .or(connect_route)
         .or(relay_info_route)
+        .or(register_route)
+        .with(warp::cors().allow_any_origin())
 }
