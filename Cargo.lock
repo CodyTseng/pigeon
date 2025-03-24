@@ -1447,6 +1447,7 @@ dependencies = [
  "clap",
  "futures-util",
  "nostr 0.39.0",
+ "reqwest",
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.26.2",

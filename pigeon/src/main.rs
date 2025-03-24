@@ -12,12 +12,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[clap(author, version)]
 struct Args {
     /// URL of the relay
-    #[clap(short = 'r', long)]
-    relay: Option<String>,
+    #[clap(short = 'r', long, default_value = "ws://localhost:4869/")]
+    relay: String,
 
     /// URL of the proxy service
-    #[clap(short = 'p', long)]
-    proxy: Option<String>,
+    #[clap(short = 'p', long, default_value = "wss://proxy.nostr-relay.app/")]
+    proxy: String,
 
     /// Optional: hex-or-bech32-secret-key
     #[clap(short = 's', long)]
@@ -37,26 +37,37 @@ async fn main() -> anyhow::Result<()> {
 
     // Parse command line arguments
     let args = Args::parse();
-
+    let relay_url_ws = Url::parse(&args.relay.clone()).unwrap();
+    let proxy_url = Url::parse(&args.proxy.clone())
+        .unwrap()
+        .join("register")
+        .unwrap();
     let secret_key = if let Some(secret_key) = args.secret_key {
         Keys::parse(&secret_key).unwrap()
     } else {
         Keys::generate()
     };
 
-    let proxy_url = Url::parse(
-        &args
-            .proxy
-            .clone()
-            .unwrap_or("wss://proxy.nostr-relay.app/".to_string()),
-    )
-    .unwrap()
-    .join("register")
-    .unwrap();
+    // Fetch relay info
+    let relay_url_http = relay_url_ws
+        .to_string()
+        .replace("ws://", "http://")
+        .replace("wss://", "https://");
+    info!("Fetching relay info: {}", &relay_url_http);
+    let response = reqwest::Client::new()
+        .get(relay_url_http)
+        .header("Accept", "application/nostr+json")
+        .send()
+        .await?;
+    let relay_info = if response.status().is_success() {
+        response.text().await?
+    } else {
+        "".to_string()
+    };
+
+    // Connect to the proxy
     let proxy = proxy_url.to_string();
     info!("Connecting to proxy: {}", proxy_url.to_string());
-
-    // Connect to both services
     let (proxy_ws, _) = connect_async(proxy_url.to_string()).await.unwrap();
     let (proxy_write, mut proxy_read) = proxy_ws.split();
     let shared_proxy_writer = Arc::new(Mutex::new(proxy_write));
@@ -82,7 +93,11 @@ async fn main() -> anyhow::Result<()> {
                 if arr[0] == "AUTH" {
                     let challenge = arr[1].as_str().unwrap_or("");
                     let relay_url = RelayUrl::parse(&proxy).unwrap();
-                    let auth_event: Event = EventBuilder::auth(challenge, relay_url)
+                    let auth_event: Event = EventBuilder::new(Kind::Authentication, &relay_info)
+                        .tags(Tags::new(vec![
+                            Tag::custom(TagKind::Challenge, [challenge.to_string()]),
+                            Tag::custom(TagKind::Relay, [relay_url.to_string()]),
+                        ]))
                         .sign_with_keys(&secret_key)
                         .unwrap();
                     let json = ClientMessage::Auth(Box::new(auth_event)).as_json();
@@ -115,19 +130,13 @@ async fn main() -> anyhow::Result<()> {
             {
                 error!("Error sending ping to proxy: {}", e);
             }
-            tokio::time::sleep(tokio::time::Duration::from_secs(180)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
         }
     });
 
-    let relay_url = Url::parse(
-        &args
-            .relay
-            .clone()
-            .unwrap_or("ws://localhost:4869/".to_string()),
-    )
-    .unwrap();
-    info!("Connecting to relay: {}", &relay_url);
-    let (relay_ws, _) = connect_async(&relay_url.to_string()).await.unwrap();
+    // Connect to the relay
+    info!("Connecting to relay: {}", &relay_url_ws);
+    let (relay_ws, _) = connect_async(&relay_url_ws.to_string()).await.unwrap();
     info!("Connected to relay");
     let (mut relay_write, mut relay_read) = relay_ws.split();
 
@@ -175,7 +184,7 @@ async fn main() -> anyhow::Result<()> {
     info!(
         "Forwarding: {} <-> {}",
         public_relay_url,
-        relay_url.to_string()
+        relay_url_ws.to_string()
     );
 
     // Wait for both tasks to complete
