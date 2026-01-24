@@ -3,6 +3,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use serde_json::json;
 use tokio::sync::{mpsc, mpsc::Receiver, mpsc::Sender};
+use tokio::time::timeout;
 use tracing::info;
 use warp::filters::ws::{Message, WebSocket};
 
@@ -130,7 +131,12 @@ impl Node {
                         // Add all remaining elements from the original array
                         new_arr.extend(arr.iter().skip(2).cloned());
 
-                        client.send(Message::text(json!(new_arr).to_string())).await;
+                        // Use timeout to avoid blocking on slow clients
+                        let _ = timeout(
+                            std::time::Duration::from_secs(30),
+                            client.send(Message::text(json!(new_arr).to_string())),
+                        )
+                        .await;
                     }
                 } else if msg_type == "OK" {
                     let event_id = match arr[1].as_str() {
@@ -141,7 +147,12 @@ impl Node {
                     if let Some((_, client_ids)) = in_progress_events.remove(event_id) {
                         for client_id in client_ids {
                             if let Some(client) = clients.get(&client_id) {
-                                client.send(Message::text(msg)).await;
+                                // Use timeout to avoid blocking on slow clients
+                                let _ = timeout(
+                                    std::time::Duration::from_secs(30),
+                                    client.send(Message::text(msg)),
+                                )
+                                .await;
                             }
                         }
                     }
@@ -191,7 +202,12 @@ impl Node {
                     // Add all remaining elements from the original array
                     new_arr.extend(arr.iter().skip(2).cloned());
 
-                    let _ = relay.send(Message::text(json!(new_arr).to_string())).await;
+                    // Use timeout to avoid blocking
+                    let _ = timeout(
+                        std::time::Duration::from_secs(30),
+                        relay.send(Message::text(json!(new_arr).to_string())),
+                    )
+                    .await;
                 } else if msg_type == "EVENT" {
                     let event = match NostrEvent::from_value(&arr[1]) {
                         Ok(event) => event,
@@ -202,7 +218,12 @@ impl Node {
                         .or_insert_with(Vec::new)
                         .push(client_id);
 
-                    let _ = relay.send(Message::text(msg)).await;
+                    // Use timeout to avoid blocking
+                    let _ = timeout(
+                        std::time::Duration::from_secs(30),
+                        relay.send(Message::text(msg)),
+                    )
+                    .await;
                 }
             }
         });

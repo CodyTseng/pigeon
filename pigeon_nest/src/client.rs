@@ -6,6 +6,8 @@ use futures::stream::{SplitSink, SplitStream, StreamExt};
 use tokio::sync::{mpsc, mpsc::Sender};
 use warp::filters::ws::{Message, WebSocket};
 
+use tokio::time::timeout;
+
 use crate::utils::unix_timestamp;
 
 enum SenderCommand {
@@ -93,11 +95,35 @@ impl Client {
         let node_sender = self.node_sender.clone();
 
         tokio::spawn(async move {
-            while let Some(msg_result) = receiver.next().await {
+            loop {
+                let msg_result = match timeout(
+                    std::time::Duration::from_secs(120),
+                    receiver.next(),
+                )
+                .await
+                {
+                    Ok(Some(msg)) => msg,
+                    _ => {
+                        // Timeout or stream ended
+                        let _ = sender.send(SenderCommand::Close).await;
+                        break;
+                    }
+                };
+
                 last_active.store(unix_timestamp(), Ordering::Relaxed);
                 if let Ok(msg) = msg_result {
                     if msg.is_text() {
-                        let _ = node_sender.send((id.clone(), msg)).await;
+                        // Use send_timeout to avoid blocking
+                        if timeout(
+                            std::time::Duration::from_secs(30),
+                            node_sender.send((id.clone(), msg)),
+                        )
+                        .await
+                        .is_err()
+                        {
+                            let _ = sender.send(SenderCommand::Close).await;
+                            break;
+                        }
                     } else if msg.is_close() {
                         let _ = sender.send(SenderCommand::Close).await;
                         break;
